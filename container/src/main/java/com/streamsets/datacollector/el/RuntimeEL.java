@@ -15,6 +15,7 @@
  */
 package com.streamsets.datacollector.el;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.streamsets.datacollector.http.WebServerTask;
 import com.streamsets.datacollector.main.RuntimeInfo;
 import com.streamsets.datacollector.util.Configuration;
@@ -40,6 +41,11 @@ import java.util.Set;
 
 public class RuntimeEL {
 
+  @FunctionalInterface
+  interface  Supplier<R,E extends Exception> {
+      R get() throws E;
+  }
+
   private static final Logger LOG = LoggerFactory.getLogger(RuntimeEL.class);
   private static final String SDC_PROPERTIES = "sdc.properties";
   private static final String RUNTIME_CONF_LOCATION_KEY = "runtime.conf.location";
@@ -49,6 +55,9 @@ public class RuntimeEL {
   private static String AUTH_TOKEN = null;
   private static String HOSTNAME = null;
   private static RuntimeInfo runtimeInfo;
+  
+  @VisibleForTesting
+  static Supplier<String, IOException> defaultHostnameMethod = RuntimeEL::getDefautHostName;
 
   @ElConstant(name = "NULL", description = "NULL value")
   public static final Object NULL = null;
@@ -134,7 +143,10 @@ public class RuntimeEL {
       }
 
       AUTH_TOKEN = runtimeInfo.getAppAuthToken();
-      HOSTNAME = configuration.get(WebServerTask.HTTP_BIND_HOST, InetAddress.getLocalHost().getCanonicalHostName());
+      HOSTNAME = configuration.get(WebServerTask.HTTP_BIND_HOST, null);
+      if (HOSTNAME==null) {
+          HOSTNAME = configuration.get(WebServerTask.HTTP_BIND_HOST,defaultHostnameMethod.get());
+      }
 
       RUNTIME_CONF_PROPS = new Properties();
       String runtimeConfLocation = configuration.get(RUNTIME_CONF_LOCATION_KEY, RUNTIME_CONF_LOCATION_DEFAULT);
@@ -143,7 +155,7 @@ public class RuntimeEL {
         for(String confName : configuration.getNames()) {
           if(confName.startsWith(RUNTIME_CONF_PREFIX)) {
             RUNTIME_CONF_PROPS.put(confName.substring(RUNTIME_CONF_PREFIX.length()).trim(),
-              configuration.get(confName, null));
+              configuration.get(confName, (String)null));
           }
         }
       } else {
@@ -158,6 +170,10 @@ public class RuntimeEL {
     } else {
       LOG.error("Error did not find sdc.properties at expected location: {}", configFile);
     }
+  }
+
+  static String getDefautHostName() throws IOException {
+      return InetAddress.getLocalHost().getCanonicalHostName();
   }
 
   @ElFunction(

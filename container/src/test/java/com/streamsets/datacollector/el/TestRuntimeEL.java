@@ -17,6 +17,7 @@ package com.streamsets.datacollector.el;
 
 import com.codahale.metrics.MetricRegistry;
 import com.google.common.collect.ImmutableSet;
+import com.streamsets.datacollector.el.RuntimeEL.Supplier;
 import com.streamsets.datacollector.http.WebServerTask;
 import com.streamsets.datacollector.main.RuntimeInfo;
 import com.streamsets.datacollector.main.RuntimeModule;
@@ -32,6 +33,8 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 import org.mockito.Mockito;
 
+import static org.junit.Assert.fail;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileWriter;
@@ -45,6 +48,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.PosixFilePermission;
+import java.rmi.UnknownHostException;
 import java.util.Arrays;
 import java.util.Properties;
 import java.util.UUID;
@@ -206,6 +210,33 @@ public class TestRuntimeEL {
 
     RuntimeEL.loadRuntimeConfiguration(runtimeInfo);
     Assert.assertEquals("sdc.jarcec.net", RuntimeEL.hostname());
+  }
+  
+  @Test
+  public void testHostnamePoisioned() throws IOException {
+    // No configuration, fetch hostname dynamically
+    OutputStream sdcProps = new FileOutputStream(new File(runtimeInfo.getConfigDir(), "sdc.properties"));
+    sdcProps.close();
+
+    Supplier<String, IOException> defaultHostnameMethod = RuntimeEL.defaultHostnameMethod;
+    RuntimeEL.defaultHostnameMethod = ()->{throw new UnknownHostException("perhaps DNS setting is wrong");};
+    try {
+        try {
+            RuntimeEL.loadRuntimeConfiguration(runtimeInfo);
+            fail("host is not defined in sdc.propeties, and getLocalHost() throws UnknownHostException");
+        }catch(UnknownHostException e) {
+        }
+    
+        // Hostname in configuration file
+        sdcProps = new FileOutputStream(new File(runtimeInfo.getConfigDir(), "sdc.properties"));
+        IOUtils.write(WebServerTask.HTTP_BIND_HOST + "=sdc.jarcec.net", sdcProps);
+        sdcProps.close();
+    
+        RuntimeEL.loadRuntimeConfiguration(runtimeInfo);
+        Assert.assertEquals("sdc.jarcec.net", RuntimeEL.hostname());
+    }finally {
+        RuntimeEL.defaultHostnameMethod = defaultHostnameMethod;
+    }
   }
 
 }
